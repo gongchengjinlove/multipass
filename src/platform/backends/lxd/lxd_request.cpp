@@ -33,18 +33,20 @@ namespace mpl = multipass::logging;
 namespace
 {
 constexpr auto request_category = "lxd request";
-} // namespace
 
-const QJsonObject mp::lxd_request(mp::NetworkAccessManager* manager, const std::string& method, QUrl url,
-                                  const mp::optional<QJsonObject>& json_data, int timeout)
+template <typename Callable>
+const QJsonObject lxd_request_common(const std::string& method, QUrl& url, int timeout, Callable&& handle_request)
 {
     QEventLoop event_loop;
     QTimer download_timeout;
     download_timeout.setInterval(timeout);
 
-    url.setHost(lxd_project_name);
+    if (url.host().isEmpty())
+    {
+        url.setHost(mp::lxd_project_name);
+    }
 
-    const QString project_query_string = QString("project=%1").arg(lxd_project_name);
+    const QString project_query_string = QString("project=%1").arg(mp::lxd_project_name);
     if (url.hasQuery())
     {
         url.setQuery(url.query() + "&" + project_query_string);
@@ -60,15 +62,8 @@ const QJsonObject mp::lxd_request(mp::NetworkAccessManager* manager, const std::
     request.setHeader(QNetworkRequest::UserAgentHeader, QString("Multipass/%1").arg(mp::version_string));
 
     auto verb = QByteArray::fromStdString(method);
-    QByteArray data;
-    if (json_data)
-    {
-        request.setHeader(QNetworkRequest::ContentTypeHeader, "application/x-www-form-urlencoded");
-        data = QJsonDocument(*json_data).toJson(QJsonDocument::Compact);
-        mpl::log(mpl::Level::trace, request_category, fmt::format("Sending data: {}", data));
-    }
 
-    auto reply = manager->sendCustomRequest(request, verb, data);
+    auto reply = handle_request(request, verb);
 
     QObject::connect(reply, &QNetworkReply::finished, &event_loop, &QEventLoop::quit);
     QObject::connect(&download_timeout, &QTimer::timeout, [&]() {
@@ -85,7 +80,7 @@ const QJsonObject mp::lxd_request(mp::NetworkAccessManager* manager, const std::
     }
 
     if (reply->error() == QNetworkReply::ContentNotFoundError)
-        throw LXDNotFoundException();
+        throw mp::LXDNotFoundException();
 
     if (reply->error() != QNetworkReply::NoError)
         throw std::runtime_error(fmt::format("{}: {}", url.toString(), reply->errorString()));
@@ -105,4 +100,36 @@ const QJsonObject mp::lxd_request(mp::NetworkAccessManager* manager, const std::
     mpl::log(mpl::Level::trace, request_category, fmt::format("Got reply: {}", QJsonDocument(json_reply).toJson()));
 
     return json_reply.object();
+}
+} // namespace
+
+const QJsonObject mp::lxd_request(mp::NetworkAccessManager* manager, const std::string& method, QUrl url,
+                                  const mp::optional<QJsonObject>& json_data, int timeout)
+{
+    auto handle_request = [manager, &json_data](QNetworkRequest& request, const QByteArray& verb) {
+        QByteArray data;
+        if (json_data)
+        {
+            data = QJsonDocument(*json_data).toJson(QJsonDocument::Compact);
+
+            request.setHeader(QNetworkRequest::ContentTypeHeader, "application/x-www-form-urlencoded");
+            request.setHeader(QNetworkRequest::ContentLengthHeader, QByteArray::number(data.size()));
+
+            mpl::log(mpl::Level::trace, request_category, fmt::format("Sending data: {}", data));
+        }
+
+        return manager->sendCustomRequest(request, verb, data);
+    };
+
+    return lxd_request_common(method, url, timeout, handle_request);
+}
+
+const QJsonObject mp::lxd_request(mp::NetworkAccessManager* manager, const std::string& method, QUrl url,
+                                  QHttpMultiPart& multi_part, int timeout)
+{
+    auto handle_request = [manager, &multi_part](const QNetworkRequest& request, const QByteArray& verb) {
+        return manager->sendCustomRequest(request, verb, &multi_part);
+    };
+
+    return lxd_request_common(method, url, timeout, handle_request);
 }
