@@ -54,6 +54,7 @@ struct LocalNetworkAccessManager : public Test
         if (!data.isEmpty())
         {
             request.setHeader(QNetworkRequest::ContentTypeHeader, "application/x-www-form-urlencoded");
+            request.setHeader(QNetworkRequest::ContentLengthHeader, data.size());
         }
 
         std::unique_ptr<QNetworkReply> reply{manager.sendCustomRequest(request, verb, data)};
@@ -161,11 +162,10 @@ TEST_F(LocalNetworkAccessManager, client_posts_correct_data)
     QByteArray expected_data;
     expected_data += "POST /1.0 HTTP/1.1\r\n"
                      "Host: test\r\n"
-                     "User-Agent: Test";
-    expected_data += "\r\n"
+                     "User-Agent: Test\r\n"
                      "Content-Type: application/x-www-form-urlencoded\r\n"
                      "Content-Length: 11\r\n\r\n"
-                     "Hello World\r\n";
+                     "Hello World\r\n\r\n\r\n";
 
     QByteArray http_response;
     http_response += "HTTP/1.1 200 OK\r\n";
