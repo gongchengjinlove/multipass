@@ -12,7 +12,34 @@ on:
   pull_request:
 
 jobs:
+  Lint:
+    runs-on: ubuntu-latest
+
+    if: ${{ github.event_name == 'pull_request' || contains('refs/heads/staging refs/heads/trying', github.ref) }}
+
+    steps:
+    - name: Install clang-format
+      run: sudo apt-get install --no-install-recommends --yes clang-format-10
+
+    - name: Check out code
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 2
+
+    - name: Run clang-format through the diff
+      run: |
+        set -e -o pipefail
+
+        # On pull requests, HEAD^1 will always be the merge base, so consider that diff for formatting.
+        git diff -U0 --no-color HEAD^1 | clang-format-diff-10 -p1 | tee ${HOME}/clang-diff
+        if [ "$( stat --printf='%s' ${HOME}/clang-diff )" -ne 0 ]; then
+          echo "##[error] Please apply the above diff to correct formatting"
+          exit 1
+        fi
+
   Build-Test:
+    needs: Lint
+
     strategy:
       matrix:
         build-type: [Debug, Clang, RelWithDebInfo, Coverage]
