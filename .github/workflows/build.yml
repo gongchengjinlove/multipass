@@ -46,6 +46,11 @@ jobs:
 
     runs-on: ubuntu-latest
 
+    env:
+      # Regexes for release branch and tag
+      MULTIPASS_RELEASE_BRANCH_PATTERN: ^refs/heads/release/[0-9\.]+$
+      MULTIPASS_RELEASE_TAG_PATTERN: ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$
+
     steps:
     - name: Install Snapcraft
       uses: samuelmeuli/action-snapcraft@v1
@@ -75,6 +80,26 @@ jobs:
     - name: Fetch tags
       run: |
         git fetch --no-recurse-submodules origin +refs/tags/*:refs/tags/*
+
+    - name: Determine build parameters
+      id: build-params
+      shell: bash
+      run: |
+        # If it's a pull request or `trying` push, annotate with `pr#` and publish to `edge/pr#`.
+        if [ ${{ github.event_name }} == "pull_request" ]; then
+          echo "::set-output name=label::pr${{ github.event.number }}"
+        elif [[ ${{ github.event_name }} == "push" && ${{ github.ref }} == "refs/heads/trying" && "${{ github.event.head_commit.message }}" =~ ^Try\ #([0-9]+): ]]; then
+          echo "::set-output name=label::pr${BASH_REMATCH[1]}"
+
+        # All other pushes annotate with the CI run number.
+        elif [ ${{ github.event_name }} == "push" ]; then
+          echo "::set-output name=label::ci${{ github.run_number }}"
+
+        # This shouldn't happen.
+        else
+            echo "##[error] Build parameter determination fell through"
+            exit 1
+        fi
 
     - name: Patch
       run: |
@@ -108,6 +133,11 @@ jobs:
 
     - name: Build
       run: |
+        # Inject the build label.
+        if [ -n "${{ steps.build-params.outputs.label }}" ]; then
+            sed -i "/configflags:/a \    - -DMULTIPASS_BUILD_LABEL=${{ steps.build-params.outputs.label }}" snap/snapcraft.yaml
+        fi
+
         # Build the `multipass` part.
         sg lxd -c '/snap/bin/snapcraft build --use-lxd multipass'
 
