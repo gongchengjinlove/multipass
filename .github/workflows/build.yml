@@ -56,6 +56,7 @@ jobs:
       MULTIPASS_RELEASE_TAG_PATTERN: ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$
       SNAPCRAFT_BUILD_INFO: 1
 
+    timeout-minutes: 60
     steps:
     - name: Install Snapcraft
       uses: samuelmeuli/action-snapcraft@v1
@@ -158,6 +159,7 @@ jobs:
 
     - name: Test
       if: ${{ matrix.build-type == 'Debug' }}
+      timeout-minutes: 1
       run: |
         sg lxd -c '/snap/bin/lxc start snapcraft-multipass'
         sg lxd -c \
@@ -168,6 +170,7 @@ jobs:
 
     - name: Measure coverage
       if: ${{ matrix.build-type == 'Coverage' }}
+      timeout-minutes: 5
       run: |
         sg lxd -c '/snap/bin/lxc start snapcraft-multipass'
         sg lxd -c \
@@ -203,6 +206,7 @@ jobs:
 
     runs-on: ubuntu-latest
 
+    timeout-minutes: 10
     steps:
     - name: Download the built snap
       uses: actions/download-artifact@v2
